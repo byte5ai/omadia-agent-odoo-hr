@@ -1,0 +1,49 @@
+{
+  "name": "@omadia/agent-odoo-hr",
+  "version": "0.2.5",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "dist/plugin.js",
+  "types": "dist/plugin.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/plugin.d.ts",
+      "default": "./dist/plugin.js"
+    }
+  },
+  "files": [
+    "dist",
+    "skills",
+    "manifest.yaml"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "@omadia/plugin-api": "*",
+    "@omadia/plugin-ui-helpers": "*",
+    "@omadia/orchestrator": "*",
+    "@omadia/verifier": "*",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2",
+    "@types/node": "^25.6.0",
+    "@types/express": "^5.0.6",
+    "express": "^5.1.0",
+    "@omadia/verifier": "file:../odoo-bot/middleware/packages/harness-verifier",
+    "@omadia/plugin-ui-helpers": "file:../odoo-bot/middleware/packages/harness-ui-helpers"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "description": "Read-only Odoo HR sub-agent for omadia — employees, departments, leave, contracts (excluding salaries).",
+  "homepage": "https://github.com/byte5ai/omadia-agent-odoo-hr",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/byte5ai/omadia-agent-odoo-hr.git"
+  }
+}

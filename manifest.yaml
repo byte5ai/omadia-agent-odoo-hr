@@ -1,0 +1,107 @@
+schema_version: "1"
+
+# ===========================================================================
+# Odoo HR Agent — extracted from middleware kernel in Phase 5B M3+M4
+# catch-up. The sub-agent class + DomainTool wrapping that used to live in
+# middleware/src/index.ts are now plugin-internal in src/plugin.ts.
+# ===========================================================================
+
+identity:
+  id: "@omadia/agent-odoo-hr"
+  kind: "agent"
+  domain: "odoo.hr"
+  name: "Odoo HR Assistant"
+  version: "0.2.5"
+  description: "Read-only HR-Agent: Mitarbeiter, Abteilungen, Urlaub, Verträge (ohne Gehälter)."
+  authors:
+    - name: "byte5 GmbH"
+      email: "info@omadia.ai"
+  license: "MIT"
+  categories:
+    - "hr"
+    - "productivity"
+
+compat:
+  core: ">=1.0 <2.0"
+  node: ">=20"
+
+depends_on:
+  - "@omadia/integration-odoo"
+
+requires:
+  - "knowledgeGraph@1"
+
+lifecycle:
+  entry: "dist/plugin.js"
+  hooks:
+    onInstall: false
+    onConfigure: true
+    onActivate: true
+    onDeactivate: true
+    onUninstall: true
+  uninstall_policy:
+    entities: "quarantine"
+    memory: "delete"
+    secrets: "delete"
+
+setup:
+  fields: []
+  self_test: true
+
+llm:
+  prefers:
+    - capabilities: ["tool_use", "long_context"]
+      min_context: 200000
+      class: "frontier"
+      temperature_hint: 0.2
+  fallback_allowed: true
+
+playbook:
+  when_to_use: |
+    Read-only HR-Agent: Mitarbeiter (hr.employee), Abteilungen, Stellen,
+    Verträge (strukturell, OHNE Gehälter), Urlaub/Abwesenheit,
+    Urlaubskontingente, Anwesenheit, Arbeitszeitmodelle, Bewerbungen,
+    Recruiting-Pipeline. Strikte Hard-Red-Lines: Gehälter, private
+    Kontaktdaten, Bank-/Ausweisdaten werden server-side gestrippt.
+  combines_with:
+    - agent: "@omadia/agent-odoo-accounting"
+      why: "Bei Personalkosten-Fragen: Accounting hat die Zahlen, HR die Zuordnung zu Mitarbeiter/Abteilung."
+  not_for:
+    - "Accounting-Themen (Rechnungen, Zahlungen)"
+    - "Schreibende Operationen — Agent ist strikt read-only"
+    - "Gehälter, Bankdaten, private Kontaktdaten — server-side blockiert"
+  example_prompts:
+    - "Wie viele Resturlaubstage hat Erika Mustermann?"
+    - "Welche Abteilungen haben offene Stellen?"
+    - "Zeig mir alle Mitarbeiter im Department Engineering."
+
+permissions:
+  memory:
+    reads: ["session:*", "agent:@omadia/agent-odoo-hr:*"]
+    writes: ["agent:@omadia/agent-odoo-hr:*"]
+  graph:
+    reads: ["Employee", "Department"]
+    writes: []
+  network:
+    outbound: []
+  filesystem:
+    scratch: false
+
+integrations: []
+
+skills:
+  - id: "runtime-note"
+    kind: "prompt_partial"
+    path: "skills/runtime-note.md"
+    description: "Beschreibt die in-process Laufzeit (query_graph + odoo_execute) — überschreibt die HTTP/curl-Anweisungen im playbook."
+    shareable: false
+  - id: "playbook"
+    kind: "prompt_partial"
+    path: "skills/playbook.md"
+    description: "Vollständiges HR-Playbook (Modelle, Methoden, Hard-Red-Lines, Beispielqueries)."
+    shareable: false
+
+ui:
+  settings_schema: null
+  commands: []
+  dashboard_cards: []
