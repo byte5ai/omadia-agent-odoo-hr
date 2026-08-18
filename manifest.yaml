@@ -11,7 +11,7 @@ identity:
   kind: "agent"
   domain: "odoo.hr"
   name: "Odoo HR Assistant"
-  version: "0.2.5"
+  version: "0.2.6"
   description: "Read-only HR-Agent: Mitarbeiter, Abteilungen, Urlaub, Verträge (ohne Gehälter)."
   authors:
     - name: "byte5 GmbH"

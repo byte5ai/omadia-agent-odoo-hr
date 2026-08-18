@@ -1,22 +1,32 @@
 /**
- * Odoo HR Sub-Agent — extracted from middleware kernel in Phase 5B M3+M4
- * catch-up. Mirrors the accounting-agent shape; the only differences are
- * the consumed service name and the runtime-note skill body.
+ * Odoo HR Sub-Agent — thin consumer + plugin-served HR dashboards.
+ *
+ * Phase 6: the LocalSubAgent toolkit (`query_graph` + `odoo_execute`) is now
+ * assembled once in @omadia/integration-odoo and published as the
+ * `odoo.agentToolkit.hr` service. This plugin just consumes it — the graph-
+ * lookup wiring (and the @omadia/verifier dependency it needed) moved into the
+ * integration, collapsing the boilerplate this package and
+ * @omadia/agent-odoo-accounting used to duplicate.
+ *
+ * On top of the shared toolkit, the HR agent additionally mounts its own Teams
+ * dashboards (birthdays / absences) — that part stays here because it is
+ * HR-specific UI, not shared agent plumbing.
+ *
+ * Requires @omadia/integration-odoo >= 0.2.0 (publishes odoo.agentToolkit.*).
  */
 
 import type { PluginContext } from '@omadia/plugin-api';
 import type { LocalSubAgentTool } from '@omadia/plugin-api';
-import { createGraphLookupTool } from '@omadia/verifier';
 
 import { createHrUiRouter } from './routes/hrUiRouter.js';
 import type { OdooExecutor } from './routes/hrDataSource.js';
 
-const EXECUTE_TOOL_SERVICE = 'odoo.executeTool.hr';
+const AGENT_TOOLKIT_SERVICE = 'odoo.agentToolkit.hr';
 const ODOO_CLIENT_SERVICE = 'odoo.client';
-const KNOWLEDGE_GRAPH_SERVICE = 'knowledgeGraph';
 
-interface MinimalKnowledgeGraph {
-  readonly [k: string]: unknown;
+/** Structural shim for the service value published by integration-odoo. */
+interface OdooAgentToolkit {
+  readonly tools: LocalSubAgentTool[];
 }
 
 export interface HrHandle {
@@ -27,23 +37,12 @@ export interface HrHandle {
 export async function activate(ctx: PluginContext): Promise<HrHandle> {
   ctx.log('activating odoo-hr agent');
 
-  const executeTool = ctx.services.get<LocalSubAgentTool>(EXECUTE_TOOL_SERVICE);
-  if (!executeTool) {
+  const toolkit = ctx.services.get<OdooAgentToolkit>(AGENT_TOOLKIT_SERVICE);
+  if (!toolkit) {
     throw new Error(
-      `agent-odoo-hr: required service '${EXECUTE_TOOL_SERVICE}' not published — @omadia/integration-odoo must be active before this agent (declared in depends_on).`,
+      `agent-odoo-hr: required service '${AGENT_TOOLKIT_SERVICE}' not published — @omadia/integration-odoo (>= 0.2.0) must be active before this agent (declared in depends_on).`,
     );
   }
-
-  const graph = ctx.services.get<MinimalKnowledgeGraph>(KNOWLEDGE_GRAPH_SERVICE);
-  if (!graph) {
-    throw new Error(
-      `agent-odoo-hr: required service '${KNOWLEDGE_GRAPH_SERVICE}' not published — declared in requires.knowledgeGraph@1.`,
-    );
-  }
-
-  const graphLookup = createGraphLookupTool('hr', {
-    graph: graph as unknown as Parameters<typeof createGraphLookupTool>[1]['graph'],
-  });
 
   // Plugin-served HR dashboards. Mounted at /p/agent-odoo-hr/{birthdays,
   // absences} — pinned as Teams Tabs through the channel-teams configurable-
@@ -78,16 +77,16 @@ export async function activate(ctx: PluginContext): Promise<HrHandle> {
       'Live aus Odoo HR (hr.leave): heute weg + nächste 60 Tage geplant. Auto-Refresh 60 s.',
     order: 20,
   });
-  ctx.log(
-    'odoo-hr uiRoutes mounted at /p/agent-odoo-hr/{birthdays,absences}',
-  );
+  ctx.log('odoo-hr uiRoutes mounted at /p/agent-odoo-hr/{birthdays,absences}');
 
   ctx.log(
-    `odoo-hr ready (tools=2: ${graphLookup.spec.name}, ${executeTool.spec.name})`,
+    `odoo-hr ready (tools=${String(toolkit.tools.length)}: ${toolkit.tools
+      .map((t) => t.spec.name)
+      .join(', ')})`,
   );
 
   return {
-    toolkit: { tools: [graphLookup, executeTool] },
+    toolkit: { tools: toolkit.tools },
     async close() {
       ctx.log('deactivating odoo-hr agent');
       disposeHrUi();
