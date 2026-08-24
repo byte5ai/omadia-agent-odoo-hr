@@ -11,7 +11,7 @@ identity:
   kind: "agent"
   domain: "odoo.hr"
   name: "Odoo HR Assistant"
-  version: "0.2.7"
+  version: "0.2.8"
   description: "Read-only HR-Agent: Mitarbeiter, Abteilungen, Urlaub, Verträge (ohne Gehälter)."
   authors:
     - name: "byte5 GmbH"
@@ -30,6 +30,15 @@ depends_on:
 
 requires:
   - "knowledgeGraph@1"
+  # omadia#839 — both are resolved via `ctx.services.get` in activate() with an
+  # unconditional throw when absent, so the agent genuinely cannot activate
+  # without them. `@omadia/integration-odoo` (>=0.2.1) declares both under
+  # `provides:` and publishes them via `ctx.services.provide`, so these
+  # `requires:` edges resolve and order the integration first (it is also named
+  # in `depends_on` above). Retires the `@omadia/agent-odoo-hr` row in
+  # `STANDALONE_LEGACY_SERVICE_GRANTS_2026_08_20`.
+  - "odoo.agentToolkit.hr@^1"
+  - "odoo.client@^1"
 
 lifecycle:
   entry: "dist/plugin.js"
