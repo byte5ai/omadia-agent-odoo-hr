@@ -22,12 +22,26 @@ HR surface — employees, departments, leave, contracts (salaries excluded by
 design), a graph-lookup tool from `@omadia/verifier`, and a small admin UI
 route (`src/routes/hrUiRouter.ts`) built with `@omadia/plugin-ui-helpers`.
 
+## UI routes and Teams tabs
+
+| Path | Auth | Serves |
+|------|------|--------|
+| `/p/agent-odoo-hr/{birthdays,absences}` | `session` | browser view (full) |
+| `/p/agent-odoo-hr/teams/{birthdays,absences}` | `public` | data-free shell: Teams SSO token → loads the data page |
+| `/p/agent-odoo-hr/teams/_data/{birthdays,absences}` | `teams-sso` | Teams view (any tenant member) |
+
+The Teams prefix is declared in `permissions.public_paths` and is only served
+after the operator grants it (requires omadia core with plugin-api >= 1.51.0,
+byte5ai/omadia#1620). Because every tenant member can open a Teams tab, the
+Teams absences view **omits the leave type** (sick leave is health data).
+
 ## Build, typecheck
 
 ```bash
 npm install
 npm run typecheck   # tsc --noEmit
 npm run build        # tsc
+npm test             # node:test (compiled to .test-build/)
 ```
 
 `@omadia/plugin-api` and `@omadia/orchestrator` are **peer dependencies**,
