@@ -10,6 +10,7 @@ import {
   fetchBirthdays,
   formatGermanDate,
   formatGermanDayMonth,
+  formatDuration,
   isAbsentToday,
   isToday,
   type Absence,
@@ -27,9 +28,10 @@ export interface HrUiRouterOptions {
 }
 
 /**
- * Plugin-served HR dashboards. Mount under `/p/agent-odoo-hr` via
- * ctx.routes.register; the operator pins them as Teams Tabs (or opens
- * them in a browser, same URL).
+ * Plugin-served HR dashboards for the BROWSER (operator session). Mounted
+ * under `/p/agent-odoo-hr` with `auth: 'session'`. Teams tabs use the
+ * shell under `/p/agent-odoo-hr/teams` and the `auth: 'teams-sso'` data
+ * router from `createHrTeamsDataRouter` instead (omadia#1620).
  *
  * Each route SSR-fetches its data from Odoo HR on every request. With
  * `refreshSeconds: 60` the Tab self-fills — a vacation entered in
@@ -41,11 +43,68 @@ export interface HrUiRouterOptions {
  */
 export function createHrUiRouter(opts: HrUiRouterOptions): Router {
   const router = Router();
-  const log = opts.log ?? ((m: unknown) => console.log(m));
+  router.get('/birthdays', birthdaysHandler(opts));
+  router.get('/absences', absencesHandler(opts, fullAbsenceRow));
+  return router;
+}
 
-  router.get(
-    '/birthdays',
-    renderRoute(async () => {
+/**
+ * The Teams-tab data pages (mounted under `/p/agent-odoo-hr/teams/_data`,
+ * `auth: 'teams-sso'`). Every member of the tenant can open a Teams tab, so
+ * this view is deliberately narrower than the session-gated browser view:
+ *
+ * - birthdays: unchanged;
+ * - absences: WITHOUT the leave type. Sick leave is health data (Art. 9
+ *   GDPR); the Teams rows are built through `teamsAbsenceRow`, an
+ *   allowlist projection that never reads `Absence.type`, so neither the
+ *   label nor the colour-coded badge class nor any attribute carries it.
+ */
+export function createHrTeamsDataRouter(opts: HrUiRouterOptions): Router {
+  const router = Router();
+  router.get('/birthdays', birthdaysHandler(opts));
+  router.get('/absences', absencesHandler(opts, teamsAbsenceRow));
+  return router;
+}
+
+/** What the absences template renders — nothing more reaches the HTML. */
+export interface AbsenceRow {
+  readonly name: string;
+  readonly department: string;
+  readonly fromDate: string;
+  readonly toDate: string;
+  readonly substitute?: string;
+  readonly durationDays?: number;
+  /** Leave-type badge. Only the session-gated browser view sets it. */
+  readonly badge?: { readonly label: string; readonly classes: string };
+}
+
+/** Browser view (operator session): full row including the leave type. */
+export function fullAbsenceRow(a: Absence): AbsenceRow {
+  return {
+    ...teamsAbsenceRow(a),
+    badge: { label: absenceTypeLabel(a.type), classes: absenceTypeBadgeClasses(a.type) },
+  };
+}
+
+/**
+ * Teams view: allowlist projection — person, department, from–to, duration,
+ * substitute. Never touches `a.type`; new Absence fields stay out unless
+ * added here on purpose.
+ */
+export function teamsAbsenceRow(a: Absence): AbsenceRow {
+  return {
+    name: a.name,
+    department: a.department,
+    fromDate: a.fromDate,
+    toDate: a.toDate,
+    ...(a.substitute ? { substitute: a.substitute } : {}),
+    ...(typeof a.durationDays === 'number' ? { durationDays: a.durationDays } : {}),
+  };
+}
+
+function birthdaysHandler(opts: HrUiRouterOptions) {
+  const log = opts.log ?? ((m: unknown) => console.log(m));
+  return renderRoute(async () => {
       let items: readonly Birthday[] = [];
       let fetchError: string | null = null;
       try {
@@ -154,154 +213,158 @@ export function createHrUiRouter(opts: HrUiRouterOptions): Router {
           </main>
         `,
       });
-    }),
-  );
+    });
+}
 
-  router.get(
-    '/absences',
-    renderRoute(async () => {
-      let items: readonly Absence[] = [];
-      let fetchError: string | null = null;
-      try {
-        items = await fetchAbsences(opts.odooClient);
-      } catch (err) {
-        fetchError = err instanceof Error ? err.message : String(err);
-        log('[agent-odoo-hr] absences fetch failed:', fetchError);
-      }
-      const now = new Date();
-      const todayIso = now.toISOString().slice(0, 10);
-      const todayList = items.filter((a) => isAbsentToday(a, now));
-      const upcoming = items
-        .filter((a) => !isAbsentToday(a, now) && a.fromDate > todayIso)
-        .sort((a, b) => a.fromDate.localeCompare(b.fromDate))
-        .slice(0, 10);
+function absencesHandler(
+  opts: HrUiRouterOptions,
+  toRow: (a: Absence) => AbsenceRow,
+) {
+  const log = opts.log ?? ((m: unknown) => console.log(m));
+  return renderRoute(async () => {
+    let rows: readonly AbsenceRow[] = [];
+    let fetchError: string | null = null;
+    try {
+      rows = (await fetchAbsences(opts.odooClient)).map(toRow);
+    } catch (err) {
+      fetchError = err instanceof Error ? err.message : String(err);
+      log('[agent-odoo-hr] absences fetch failed:', fetchError);
+    }
+    const now = new Date();
+    const todayIso = now.toISOString().slice(0, 10);
+    const todayList = rows.filter((a) => isAbsentToday(a, now));
+    const upcoming = rows
+      .filter((a) => !isAbsentToday(a, now) && a.fromDate > todayIso)
+      .sort((a, b) => a.fromDate.localeCompare(b.fromDate))
+      .slice(0, 10);
 
-      return htmlDoc({
-        title: 'HR — Abwesenheiten',
-        refreshSeconds: 60,
-        body: html`
-          <main class="max-w-2xl mx-auto p-6 space-y-6">
-            <header>
-              <h1 class="text-2xl font-semibold tracking-tight">
-                Abwesenheiten
-              </h1>
-              <p class="text-sm text-slate-500">
-                Wer ist heute weg, wer kommt als Nächstes. Aktualisiert sich
-                alle 60 s aus Odoo HR.
-              </p>
-            </header>
+    return htmlDoc({
+      title: 'HR — Abwesenheiten',
+      refreshSeconds: 60,
+      body: html`
+        <main class="max-w-2xl mx-auto p-6 space-y-6">
+          <header>
+            <h1 class="text-2xl font-semibold tracking-tight">
+              Abwesenheiten
+            </h1>
+            <p class="text-sm text-slate-500">
+              Wer ist heute weg, wer kommt als Nächstes. Aktualisiert sich
+              alle 60 s aus Odoo HR.
+            </p>
+          </header>
 
-            ${fetchError ? errorBanner(fetchError) : ''}
+          ${fetchError ? errorBanner(fetchError) : ''}
 
-            <section>
-              <h2 class="text-sm uppercase tracking-wider text-slate-500 mb-2">
-                Heute weg (${todayList.length})
-              </h2>
-              ${todayList.length === 0
-                ? safe(
-                    '<p class="text-sm text-slate-400 italic">Niemand ist heute abwesend.</p>',
-                  )
-                : html`
-                    <ul class="space-y-2">
-                      ${todayList.map(
-                        (a) => html`
-                          <li
-                            class="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4"
-                          >
-                            <div>
-                              <div class="text-base font-medium text-slate-900">
-                                ${a.name}
-                              </div>
-                              <div class="text-xs text-slate-500 mt-0.5">
-                                ${a.department}
-                              </div>
-                              ${a.substitute
-                                ? html`
-                                    <div
-                                      class="text-xs text-slate-600 mt-2"
-                                    >
-                                      Vertretung:
-                                      <span class="font-medium">${a.substitute}</span>
-                                    </div>
-                                  `
-                                : ''}
+          <section>
+            <h2 class="text-sm uppercase tracking-wider text-slate-500 mb-2">
+              Heute weg (${todayList.length})
+            </h2>
+            ${todayList.length === 0
+              ? safe(
+                  '<p class="text-sm text-slate-400 italic">Niemand ist heute abwesend.</p>',
+                )
+              : html`
+                  <ul class="space-y-2">
+                    ${todayList.map(
+                      (a) => html`
+                        <li
+                          class="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4"
+                        >
+                          <div>
+                            <div class="text-base font-medium text-slate-900">
+                              ${a.name}
                             </div>
-                            <div class="text-right shrink-0">
-                              <span
-                                class="inline-block text-[10px] uppercase tracking-wider rounded px-2 py-0.5 ${absenceTypeBadgeClasses(
-                                  a.type,
-                                )}"
-                              >
-                                ${absenceTypeLabel(a.type)}
-                              </span>
-                              <div
-                                class="text-xs font-mono text-slate-500 mt-2"
-                              >
-                                bis ${formatGermanDate(a.toDate)}
-                              </div>
+                            <div class="text-xs text-slate-500 mt-0.5">
+                              ${a.department}
                             </div>
-                          </li>
-                        `,
-                      )}
-                    </ul>
-                  `}
-            </section>
-
-            <section>
-              <h2 class="text-sm uppercase tracking-wider text-slate-500 mb-2">
-                Demnächst (${upcoming.length})
-              </h2>
-              ${upcoming.length === 0
-                ? safe(
-                    '<p class="text-sm text-slate-400 italic">Keine geplanten Abwesenheiten.</p>',
-                  )
-                : html`
-                    <ul class="space-y-2">
-                      ${upcoming.map(
-                        (a) => html`
-                          <li
-                            class="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3"
-                          >
-                            <div>
-                              <div class="text-sm font-medium text-slate-900">
-                                ${a.name}
-                              </div>
-                              <div class="text-xs text-slate-500 mt-0.5">
-                                ${a.department}
-                              </div>
+                            ${a.substitute
+                              ? html`
+                                  <div class="text-xs text-slate-600 mt-2">
+                                    Vertretung:
+                                    <span class="font-medium">${a.substitute}</span>
+                                  </div>
+                                `
+                              : ''}
+                          </div>
+                          <div class="text-right shrink-0">
+                            ${badge(a)}
+                            <div class="text-xs font-mono text-slate-500 mt-2">
+                              bis ${formatGermanDate(a.toDate)}
                             </div>
-                            <div class="text-right">
-                              <span
-                                class="inline-block text-[10px] uppercase tracking-wider rounded px-2 py-0.5 ${absenceTypeBadgeClasses(
-                                  a.type,
-                                )}"
-                              >
-                                ${absenceTypeLabel(a.type)}
-                              </span>
-                              <div
-                                class="text-xs font-mono text-slate-500 mt-2"
-                              >
-                                ${formatGermanDate(a.fromDate)} –
-                                ${formatGermanDate(a.toDate)}
-                              </div>
+                            ${duration(a)}
+                          </div>
+                        </li>
+                      `,
+                    )}
+                  </ul>
+                `}
+          </section>
+
+          <section>
+            <h2 class="text-sm uppercase tracking-wider text-slate-500 mb-2">
+              Demnächst (${upcoming.length})
+            </h2>
+            ${upcoming.length === 0
+              ? safe(
+                  '<p class="text-sm text-slate-400 italic">Keine geplanten Abwesenheiten.</p>',
+                )
+              : html`
+                  <ul class="space-y-2">
+                    ${upcoming.map(
+                      (a) => html`
+                        <li
+                          class="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3"
+                        >
+                          <div>
+                            <div class="text-sm font-medium text-slate-900">
+                              ${a.name}
                             </div>
-                          </li>
-                        `,
-                      )}
-                    </ul>
-                  `}
-            </section>
+                            <div class="text-xs text-slate-500 mt-0.5">
+                              ${a.department}
+                            </div>
+                          </div>
+                          <div class="text-right">
+                            ${badge(a)}
+                            <div class="text-xs font-mono text-slate-500 mt-2">
+                              ${formatGermanDate(a.fromDate)} –
+                              ${formatGermanDate(a.toDate)}
+                            </div>
+                            ${duration(a)}
+                          </div>
+                        </li>
+                      `,
+                    )}
+                  </ul>
+                `}
+          </section>
 
-            <footer class="text-[10px] uppercase tracking-wider text-slate-400 pt-4 border-t border-slate-200">
-              Quelle: Odoo HR · hr.leave · ${new Date().toISOString().slice(11, 19)} UTC
-            </footer>
-          </main>
-        `,
-      });
-    }),
-  );
+          <footer class="text-[10px] uppercase tracking-wider text-slate-400 pt-4 border-t border-slate-200">
+            Quelle: Odoo HR · hr.leave · ${new Date().toISOString().slice(11, 19)} UTC
+          </footer>
+        </main>
+      `,
+    });
+  });
+}
 
-  return router;
+function badge(a: AbsenceRow): HtmlFragment | '' {
+  if (!a.badge) return '';
+  return html`
+    <span
+      class="inline-block text-[10px] uppercase tracking-wider rounded px-2 py-0.5 ${a.badge.classes}"
+    >
+      ${a.badge.label}
+    </span>
+  `;
+}
+
+function duration(a: AbsenceRow): HtmlFragment | '' {
+  if (typeof a.durationDays !== 'number') return '';
+  return html`
+    <div class="text-[10px] uppercase tracking-wider text-slate-400 mt-0.5">
+      ${formatDuration(a.durationDays)}
+    </div>
+  `;
 }
 
 function errorBanner(message: string): HtmlFragment {

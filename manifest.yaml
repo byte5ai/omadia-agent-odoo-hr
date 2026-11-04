@@ -11,7 +11,7 @@ identity:
   kind: "agent"
   domain: "odoo.hr"
   name: "Odoo HR Assistant"
-  version: "0.2.8"
+  version: "0.3.0"
   description: "Read-only HR-Agent: Mitarbeiter, Abteilungen, Urlaub, Verträge (ohne Gehälter)."
   authors:
     - name: "byte5 GmbH"
@@ -22,7 +22,9 @@ identity:
     - "productivity"
 
 compat:
-  core: ">=1.0 <2.0"
+  # 1.51.0: kernel `auth: 'teams-sso'` route mode (omadia#1620) — the Teams
+  # tabs' data mount needs it.
+  core: ">=1.51.0 <2.0"
   node: ">=20"
 
 depends_on:
@@ -95,6 +97,14 @@ permissions:
     outbound: []
   filesystem:
     scratch: false
+  # Teams tabs (omadia#1620). Teams sends no omadia session cookie, so the tab
+  # surface lives below this prefix: `<prefix>/<page>` is a data-free shell
+  # (auth 'public'), `<prefix>/_data/<page>` serves the page only for a
+  # kernel-verified Teams SSO token of a tenant member (auth 'teams-sso').
+  # Served only once the operator grants it. Every tenant member can read it,
+  # so the Teams absences view omits the leave type (sick leave = health data).
+  public_paths:
+    - "/p/agent-odoo-hr/teams"
 
 integrations: []
 

@@ -25,6 +25,8 @@ export interface Absence {
   /** ISO date `YYYY-MM-DD` inclusive. */
   readonly toDate: string;
   readonly substitute?: string;
+  /** Odoo's `number_of_days` (may be fractional, e.g. 0.5) when set. */
+  readonly durationDays?: number;
 }
 
 /**
@@ -96,6 +98,7 @@ interface OdooLeaveRow {
   date_to: string | false;
   state: string;
   department_id?: [number, string] | false;
+  number_of_days?: number | false;
 }
 
 export async function fetchAbsences(
@@ -128,6 +131,7 @@ export async function fetchAbsences(
         'date_to',
         'state',
         'department_id',
+        'number_of_days',
       ],
       limit: 200,
       order: 'date_from asc',
@@ -153,6 +157,9 @@ export async function fetchAbsences(
         // since the Tab template renders date-only.
         fromDate: r.date_from.slice(0, 10),
         toDate: r.date_to.slice(0, 10),
+        ...(typeof r.number_of_days === 'number' && r.number_of_days > 0
+          ? { durationDays: r.number_of_days }
+          : {}),
       };
     })
     .filter((a): a is Absence => a !== null);
@@ -195,7 +202,7 @@ export function daysUntilBirthday(
 }
 
 export function isAbsentToday(
-  absence: Absence,
+  absence: Pick<Absence, 'fromDate' | 'toDate'>,
   now: Date = new Date(),
 ): boolean {
   const todayIso = now.toISOString().slice(0, 10);
@@ -212,6 +219,11 @@ export function formatGermanDayMonth(iso: string): string {
   const [, m, d] = iso.split('-');
   if (!m || !d) return iso;
   return `${d}.${m}.`;
+}
+
+export function formatDuration(days: number): string {
+  const n = Number.isInteger(days) ? String(days) : days.toFixed(1).replace('.', ',');
+  return days === 1 ? '1 Tag' : `${n} Tage`;
 }
 
 export function absenceTypeLabel(type: Absence['type']): string {

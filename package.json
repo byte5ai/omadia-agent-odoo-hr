@@ -1,6 +1,6 @@
 {
   "name": "@omadia/agent-odoo-hr",
-  "version": "0.2.8",
+  "version": "0.3.0",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -21,7 +21,8 @@
     "build": "tsc",
     "package": "node scripts/build-zip.mjs",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist out"
+    "clean": "rm -rf dist out",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/test/*.test.js"
   },
   "peerDependencies": {
     "@omadia/plugin-api": "*",
