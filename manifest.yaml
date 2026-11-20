@@ -27,10 +27,10 @@ identity:
     - "productivity"
 
 compat:
-  # 1.75.0: kind `tool`, `agent_templates` and `capabilities[].side_effects`
+  # 1.76.0: kind `tool`, `agent_templates` and `capabilities[].side_effects`
   # do not load on older cores (spec 2042 §5.10). It also covers `auth:
   # 'teams-sso'` (plugin-api 1.51.0, omadia#1620), which the Teams tabs need.
-  core: ">=1.75.0 <2.0"
+  core: ">=1.76.0 <2.0"
   node: ">=20"
 
 depends_on:

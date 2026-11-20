@@ -177,7 +177,7 @@ describe('manifest', () => {
     assert.ok(paths.includes(`- "${TEAMS_MOUNT_PATH}"`), `public_paths must list ${TEAMS_MOUNT_PATH}`);
   });
 
-  it('requires a core with capability plugins and auth: teams-sso (>= 1.75.0)', () => {
-    assert.match(manifest, /^ {2}core: ">=1\.75\.0 <2\.0"$/m);
+  it('requires a core with capability plugins and auth: teams-sso (>= 1.76.0)', () => {
+    assert.match(manifest, /^ {2}core: ">=1\.76\.0 <2\.0"$/m);
   });
 });

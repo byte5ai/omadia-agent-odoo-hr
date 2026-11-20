@@ -23,7 +23,7 @@
   allows search, search_read, read, search_count, read_group, fields_get).
 - Removed `llm:` preferences and `permissions.memory`. `description` is
   `en`/`de`. The ZIP no longer carries `skills/`.
-- `compat.core` is `>=1.75.0 <2.0` (kind `tool`, `agent_templates`; also
+- `compat.core` is `>=1.76.0 <2.0` (kind `tool`, `agent_templates`; also
   covers the Teams-tab `teams-sso` mode).
 - Dashboards and Teams tabs are unchanged.
 - Tests: `test/capabilityPlugin.test.ts`.

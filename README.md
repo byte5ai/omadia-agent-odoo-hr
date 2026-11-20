@@ -37,7 +37,7 @@ Tools (both `side_effects: read`):
 The old names were private to the sub-agent. As native tools they are
 instance-wide and the accounting plugin has the same two, so each scope has its
 own prefix. The plugin also serves the HR dashboards below. Needs omadia core
->= 1.75.0 (kind `tool`, `agent_templates`).
+>= 1.76.0 (kind `tool`, `agent_templates`).
 
 ## UI routes and Teams tabs
 
