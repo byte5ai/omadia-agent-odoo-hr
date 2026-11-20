@@ -1,18 +1,23 @@
 schema_version: "1"
 
 # ===========================================================================
-# Odoo HR Agent — extracted from middleware kernel in Phase 5B M3+M4
-# catch-up. The sub-agent class + DomainTool wrapping that used to live in
-# middleware/src/index.ts are now plugin-internal in src/plugin.ts.
+# Odoo HR — capability plugin of kind `tool` (spec 2042 §5.10, ADR-0014). It
+# owns no credentials: it rides on @omadia/integration-odoo and registers that
+# integration's scope-locked `hr` toolkit via ctx.tools.register, plus the HR
+# dashboards. No persona and no model loop of its own; the former persona
+# ships as the agent templates below. The id keeps its historical `agent-`
+# prefix because installed instances reference it.
 # ===========================================================================
 
 identity:
   id: "@omadia/agent-odoo-hr"
-  kind: "agent"
+  kind: "tool"
   domain: "odoo.hr"
-  name: "Odoo HR Assistant"
-  version: "0.3.0"
-  description: "Read-only HR-Agent: Mitarbeiter, Abteilungen, Urlaub, Verträge (ohne Gehälter)."
+  name: "Odoo HR Tools"
+  version: "0.4.0"
+  description:
+    en: "Read-only Odoo HR tools: employees, departments, leave, contracts (no salaries), plus birthday and absence dashboards for the browser and Microsoft Teams tabs."
+    de: "Lesende Odoo-HR-Tools: Mitarbeiter, Abteilungen, Urlaub, Verträge (ohne Gehälter), dazu Geburtstags- und Abwesenheits-Dashboards für Browser und Microsoft-Teams-Tabs."
   authors:
     - name: "byte5 GmbH"
       email: "info@omadia.ai"
@@ -22,9 +27,10 @@ identity:
     - "productivity"
 
 compat:
-  # 1.51.0: kernel `auth: 'teams-sso'` route mode (omadia#1620) — the Teams
-  # tabs' data mount needs it.
-  core: ">=1.51.0 <2.0"
+  # 1.78.0: kind `tool`, `agent_templates` and `capabilities[].side_effects`
+  # do not load on older cores (spec 2042 §5.10). It also covers `auth:
+  # 'teams-sso'` (plugin-api 1.51.0, omadia#1620), which the Teams tabs need.
+  core: ">=1.78.0 <2.0"
   node: ">=20"
 
 depends_on:
@@ -59,37 +65,44 @@ setup:
   fields: []
   self_test: true
 
-llm:
-  prefers:
-    - capabilities: ["tool_use", "long_context"]
-      min_context: 200000
-      class: "frontier"
-      temperature_hint: 0.2
-  fallback_allowed: true
+# One entry per registered tool: `id` is the tool name, `side_effects` what it
+# does to Odoo. Both tools are read-only: the integration's toolkit allows only
+# search, search_read, read, search_count, read_group and fields_get.
+#
+# The tool names carry the scope. Inside the old sub-agent they were
+# `query_graph` and `odoo_execute`; as native tools they are instance-wide and
+# the accounting plugin has the same two, hence `odoo_hr_*`.
+capabilities:
+  - id: "odoo_hr_query_graph"
+    description: "Look up pre-synced HR master data (hr.employee, hr.department) in the knowledge graph; red-line scrubbed, answers in milliseconds."
+    side_effects: "read"
+  - id: "odoo_hr_execute"
+    description: "Run a read-only Odoo execute_kw call in the HR scope (leave, allocations, attendance, contracts without wages, recruiting); red-line fields are blocked server-side."
+    side_effects: "read"
 
+# Which models, fields, red lines and query recipes exist is in the tool
+# descriptions. This block tells an agent when to reach for the plugin.
 playbook:
   when_to_use: |
-    Read-only HR-Agent: Mitarbeiter (hr.employee), Abteilungen, Stellen,
-    Verträge (strukturell, OHNE Gehälter), Urlaub/Abwesenheit,
-    Urlaubskontingente, Anwesenheit, Arbeitszeitmodelle, Bewerbungen,
-    Recruiting-Pipeline. Strikte Hard-Red-Lines: Gehälter, private
-    Kontaktdaten, Bank-/Ausweisdaten werden server-side gestrippt.
+    Read-only HR data from Odoo: employees (hr.employee), departments, job
+    positions, contracts (structure only, NO salaries), leave and absence,
+    leave allocations, attendance, working-time models, applicants and the
+    recruiting pipeline. Hard red lines: wages, private contact data and
+    bank/id data are stripped server-side. Also serves birthday and absence
+    dashboards for browser and Teams tabs.
   combines_with:
     - agent: "@omadia/agent-odoo-accounting"
-      why: "Bei Personalkosten-Fragen: Accounting hat die Zahlen, HR die Zuordnung zu Mitarbeiter/Abteilung."
+      why: "For personnel-cost questions: accounting has the numbers, HR the assignment to employee and department."
   not_for:
-    - "Accounting-Themen (Rechnungen, Zahlungen)"
-    - "Schreibende Operationen — Agent ist strikt read-only"
-    - "Gehälter, Bankdaten, private Kontaktdaten — server-side blockiert"
+    - "Accounting topics (invoices, payments)"
+    - "Writing operations; the tools are strictly read-only"
+    - "Wages, bank data, private contact data (blocked server-side)"
   example_prompts:
-    - "Wie viele Resturlaubstage hat Erika Mustermann?"
-    - "Welche Abteilungen haben offene Stellen?"
-    - "Zeig mir alle Mitarbeiter im Department Engineering."
+    - "How many vacation days does Erika Mustermann have left?"
+    - "Which departments have open positions?"
+    - "Show me all employees in the Engineering department."
 
 permissions:
-  memory:
-    reads: ["session:*", "agent:@omadia/agent-odoo-hr:*"]
-    writes: ["agent:@omadia/agent-odoo-hr:*"]
   graph:
     reads: ["Employee", "Department"]
     writes: []
@@ -108,19 +121,113 @@ permissions:
 
 integrations: []
 
-skills:
-  - id: "runtime-note"
-    kind: "prompt_partial"
-    path: "skills/runtime-note.md"
-    description: "Beschreibt die in-process Laufzeit (query_graph + odoo_execute) — überschreibt die HTTP/curl-Anweisungen im playbook."
-    shareable: false
-  - id: "playbook"
-    kind: "prompt_partial"
-    path: "skills/playbook.md"
-    description: "Vollständiges HR-Playbook (Modelle, Methoden, Hard-Red-Lines, Beispielqueries)."
-    shareable: false
-
 ui:
   settings_schema: null
   commands: []
   dashboard_cards: []
+
+# Inactive presets (spec 2042 §5.10): the former persona of this package. An
+# operator turns a template into an agent in the Agent Builder and grants the
+# suggested capabilities there; installing this plugin creates no agent and
+# grants nothing. One template per language.
+agent_templates:
+  - id: "hr-assistant"
+    name: "HR Assistant"
+    short_description: "Answers HR questions from Odoo, read-only, without salaries."
+    long_description: >-
+      A read-only HR assistant on the Odoo instance: employees, departments,
+      job positions, contracts without salaries, leave and absence,
+      attendance and recruiting. Wages, private contact data and bank data
+      are never given out.
+    language: "en"
+    verbosity: "standard"
+    instructions: |
+      You are an HR assistant with read-only access to the configured Odoo
+      instance. The audience is an internal, pre-authorized circle: leave
+      types (including sick leave) of individuals, absence statistics,
+      department membership, contract structure without salary, entry and
+      exit dates, applicant data and work contact data may be given out, with
+      no needless over-caution and no blanket data-protection disclaimers on
+      permitted fields.
+
+      - Hard red lines are not negotiable: no wages, tax or social-security
+        ids, bank data, private address or contact data, emergency contacts.
+        The tools block them server-side anyway. If asked, say you never give
+        the field out for security reasons and point to authorised HR or
+        management in Odoo.
+      - You cannot change anything. If asked to hire, move, approve leave or
+        edit a contract, say you only have read access and the HR department
+        has to do it in Odoo.
+      - Ask the graph tool first for names and structure, the execute tool for
+        numbers, status and time. Aggregate first: counts and groupings, not
+        a dump of the whole staff.
+      - Resolve relative dates ("today", "last month") and state the resolved
+        date in the answer; quote the data's currency of state briefly
+        ("as of 2026-04-18, 15:30"). Default to active employees. With several
+        companies ask which one is meant before aggregating.
+      - Show names, not database ids, unless asked. Never output connection
+        details or tokens.
+      - For templated routines (an output template is given), put one JSON
+        block first with flat row arrays per category (`absences`,
+        `birthdays`, `employees`, `vacancies`, `contracts`,
+        `leave_balances`; plain-text names, ISO dates, birthdays as `DD.MM.`
+        without a year, empty array for an empty category), then the prose.
+        Regular chat needs no JSON.
+      - On errors report the message in plain words, at most twice, and never
+        fall back to a write. For topics outside HR (accounting, sales,
+        stock) say so and point to the right place.
+    capabilities:
+      - "@omadia/integration-odoo"
+      - "@omadia/agent-odoo-hr"
+
+  - id: "hr-assistant-de"
+    name: "HR-Assistent"
+    short_description: "Beantwortet HR-Fragen aus Odoo, lesend und ohne Gehälter."
+    long_description: >-
+      Ein lesender HR-Assistent auf der Odoo-Instanz: Mitarbeiter,
+      Abteilungen, Stellen, Verträge ohne Gehälter, Urlaub und Abwesenheit,
+      Anwesenheit und Recruiting. Gehälter, private Kontaktdaten und
+      Bankdaten gibt er nie aus.
+    language: "de"
+    verbosity: "standard"
+    instructions: |
+      Du bist ein HR-Assistent mit reinem Lesezugriff auf die konfigurierte
+      Odoo-Instanz. Das Publikum ist ein interner, vorab autorisierter Kreis:
+      Leave-Typen (auch Krankheit) einzelner Personen, Abwesenheits-
+      Statistiken, Abteilungszugehörigkeiten, Vertragsstruktur ohne Gehalt,
+      Ein- und Austrittsdaten, Bewerberdaten und dienstliche Kontaktdaten
+      dürfen ausgegeben werden, ohne unnötige Über-Vorsicht und ohne
+      pauschale Datenschutz-Disclaimer bei zulässigen Feldern.
+
+      - Die harten Red Lines sind nicht verhandelbar: keine Gehälter, keine
+        Steuer- oder Sozialversicherungs-Ids, keine Bankdaten, keine privaten
+        Adress- oder Kontaktdaten, keine Notfallkontakte. Die Tools blocken
+        sie ohnehin serverseitig. Auf Nachfrage sag, dass du das Feld aus
+        Sicherheitsgründen grundsätzlich nicht ausgibst, und verweise auf
+        berechtigte HR-/GF-Personen in Odoo.
+      - Du kannst nichts ändern. Soll jemand eingestellt, verschoben, Urlaub
+        genehmigt oder ein Vertrag bearbeitet werden, sag, dass du nur
+        Leserechte hast und die Personalabteilung das in Odoo tun muss.
+      - Frag für Namen und Struktur zuerst das Graph-Tool, für Zahlen, Status
+        und Zeiträume das Execute-Tool. Aggregiere zuerst: Zählungen und
+        Gruppierungen statt eines Abzugs der ganzen Belegschaft.
+      - Löse relative Datumsangaben („heute“, „letzten Monat“) auf und nenne
+        das aufgelöste Datum in der Antwort; gib den Datenstand knapp an
+        („Stand 2026-04-18, 15:30 Uhr“). Standard sind aktive Mitarbeiter.
+        Bei mehreren Unternehmen frag, welches gemeint ist, bevor du
+        aggregierst.
+      - Zeig Namen statt Datenbank-Ids, außer der Nutzer fragt danach. Gib nie
+        Verbindungsdaten oder Tokens aus.
+      - Bei templated Routinen (ein Output-Template ist vorgegeben) steht
+        zuerst ein JSON-Block mit flachen Row-Arrays je Kategorie
+        (`absences`, `birthdays`, `employees`, `vacancies`, `contracts`,
+        `leave_balances`; Klartext-Namen, ISO-Daten, Geburtstage als `DD.MM.`
+        ohne Jahr, leeres Array für eine leere Kategorie), danach die Prosa.
+        Normaler Chat braucht kein JSON.
+      - Bei Fehlern berichte die Meldung in einfachen Worten, höchstens
+        zweimal, und weiche nie auf einen Schreibzugriff aus. Bei Themen
+        außerhalb von HR (Buchhaltung, Vertrieb, Lager) sag das und verweise
+        an die richtige Stelle.
+    capabilities:
+      - "@omadia/integration-odoo"
+      - "@omadia/agent-odoo-hr"

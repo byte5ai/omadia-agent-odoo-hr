@@ -1,23 +1,25 @@
 /**
- * Odoo HR Sub-Agent — thin consumer + plugin-served HR dashboards.
+ * Odoo HR capability plugin (kind `tool`, spec 2042 §5.10, ADR-0014) plus the
+ * plugin-served HR dashboards.
  *
- * Phase 6: the LocalSubAgent toolkit (`query_graph` + `odoo_execute`) is now
- * assembled once in @omadia/integration-odoo and published as the
- * `odoo.agentToolkit.hr` service. This plugin just consumes it — the graph-
- * lookup wiring (and the @omadia/verifier dependency it needed) moved into the
- * integration, collapsing the boilerplate this package and
- * @omadia/agent-odoo-accounting used to duplicate.
+ * The toolkit (`query_graph` + `odoo_execute`, scope `hr`) is assembled once
+ * in @omadia/integration-odoo and published as the `odoo.agentToolkit.hr`
+ * service. This plugin registers each of its tools via `ctx.tools.register`
+ * (`registerTools.ts`) under an instance-unique name and returns `{ close }`.
+ * It has no persona, no system prompt and no sub-agent: the former persona
+ * ships as agent templates in manifest.yaml, the tool knowledge is in the
+ * tool descriptions (`toolDocs.ts`).
  *
- * On top of the shared toolkit, the HR agent additionally mounts its own Teams
- * dashboards (birthdays / absences) — that part stays here because it is
- * HR-specific UI, not shared agent plumbing.
+ * On top of the tools, the plugin mounts its own Teams dashboards (birthdays /
+ * absences) — HR-specific UI, not shared agent plumbing.
  *
  * Requires @omadia/integration-odoo >= 0.2.0 (publishes odoo.agentToolkit.*).
  */
 
-import type { PluginContext } from '@omadia/plugin-api';
-import type { LocalSubAgentTool } from '@omadia/plugin-api';
+import type { LocalSubAgentTool, PluginContext } from '@omadia/plugin-api';
 
+import { registerToolkitTools } from './registerTools.js';
+import { HR_TOOL_DOCS, HR_TOOL_RENAME } from './toolDocs.js';
 import { createHrTeamsDataRouter, createHrUiRouter } from './routes/hrUiRouter.js';
 import type { OdooExecutor } from './routes/hrDataSource.js';
 import {
@@ -59,12 +61,11 @@ interface OdooAgentToolkit {
 }
 
 export interface HrHandle {
-  readonly toolkit: { tools: LocalSubAgentTool[] };
   close(): Promise<void>;
 }
 
 export async function activate(ctx: PluginContext): Promise<HrHandle> {
-  ctx.log('activating odoo-hr agent');
+  ctx.log('activating odoo-hr tools');
 
   const toolkit = ctx.services.get<OdooAgentToolkit>(AGENT_TOOLKIT_SERVICE);
   if (!toolkit) {
@@ -116,6 +117,16 @@ export async function activate(ctx: PluginContext): Promise<HrHandle> {
     `odoo-hr uiRoutes mounted at ${UI_MOUNT_PATH}/{birthdays,absences} (session) + ${TEAMS_MOUNT_PATH}/{birthdays,absences} (Teams SSO)`,
   );
 
+  // Every toolkit tool goes to the kernel's tool runtime.
+  try {
+    disposers.push(
+      registerToolkitTools(ctx, toolkit.tools, { rename: HR_TOOL_RENAME, docs: HR_TOOL_DOCS }),
+    );
+  } catch (err) {
+    for (const dispose of disposers) dispose();
+    throw err;
+  }
+
   ctx.log(
     `odoo-hr ready (tools=${String(toolkit.tools.length)}: ${toolkit.tools
       .map((t) => t.spec.name)
@@ -123,9 +134,8 @@ export async function activate(ctx: PluginContext): Promise<HrHandle> {
   );
 
   return {
-    toolkit: { tools: toolkit.tools },
     async close() {
-      ctx.log('deactivating odoo-hr agent');
+      ctx.log('deactivating odoo-hr tools');
       for (const dispose of disposers) dispose();
     },
   };

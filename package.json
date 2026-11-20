@@ -1,6 +1,6 @@
 {
   "name": "@omadia/agent-odoo-hr",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -14,7 +14,6 @@
   },
   "files": [
     "dist",
-    "skills",
     "manifest.yaml"
   ],
   "scripts": {
@@ -42,7 +41,7 @@
   "engines": {
     "node": ">=20"
   },
-  "description": "Read-only Odoo HR sub-agent for omadia \u2014 employees, departments, leave, contracts (excluding salaries).",
+  "description": "Read-only Odoo HR tools for omadia \u2014 employees, departments, leave, contracts (excluding salaries).",
   "homepage": "https://github.com/byte5ai/omadia-agent-odoo-hr",
   "repository": {
     "type": "git",
